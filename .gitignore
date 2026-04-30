@@ -5,3 +5,6 @@ node_modules
 *.sqlite-wal
 *.sqlite-shm
 hook_debug.json
+
+cloudflared.exe
+*.log
