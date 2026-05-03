@@ -3,7 +3,7 @@ const express = require('express');
 const basicAuth = require('express-basic-auth');
 
 // Módulos refatorados
-const { getUserState, saveUserState, getAllUsers, deleteInactiveUsers, closeDatabase } = require('./src/database');
+const { getUserState, saveUserState, getAllUsers, deleteInactiveUsers, closeDatabase, isMessageProcessed, markMessageProcessed, saveLog, cleanupDatabase } = require('./src/database');
 const { processMessage, getDefaultUserData } = require('./src/stateMachine');
 const { sendMessage, fetchProfile } = require('./src/evolutionService');
 const { TEXTS } = require('./config');
@@ -136,12 +136,29 @@ app.post('/api/contacts/:jid/toggle-ignore', async (req, res) => {
         
         res.json({ success: true, ignored: userData.ignored });
     } catch (err) {
-        console.error('Erro ao alterar status de ignore:', err);
         res.status(500).json({ error: 'Erro interno do servidor' });
     }
 });
 
-const processedMessages = new Set();
+// Desativar alerta de urgência
+app.post('/api/leads/:jid/dismiss-urgency', async (req, res) => {
+    try {
+        const { jid } = req.params;
+        let userData = await getUserState(jid);
+        if (userData && userData.state === 'ATENDIMENTO_HUMANO') {
+            userData.urgencyDismissed = true;
+            await saveUserState(jid, userData);
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Lead não encontrado ou não está em atendimento' });
+        }
+    } catch (err) {
+        console.error('Erro ao desativar urgência:', err);
+        res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+});
+
+// Set removido - idempotência agora via banco
 
 // --- Webhook da Evolution API ---
 app.post(['/webhook', '/webhook/:event'], async (req, res) => {
@@ -169,18 +186,14 @@ app.post(['/webhook', '/webhook/:event'], async (req, res) => {
                 return res.status(200).send();
             }
 
-            // Evitar duplicidade de webhooks (Idempotência)
+            // Evitar duplicidade de webhooks (Idempotência via BD)
             const messageId = msgData.key.id;
-            if (messageId && processedMessages.has(messageId)) {
-                return res.status(200).send();
-            }
             if (messageId) {
-                processedMessages.add(messageId);
-                // Limpar o cache para não vazar memória (mantém os últimos 1000)
-                if (processedMessages.size > 1000) {
-                    const first = processedMessages.values().next().value;
-                    processedMessages.delete(first);
+                const processed = await isMessageProcessed(messageId);
+                if (processed) {
+                    return res.status(200).send();
                 }
+                await markMessageProcessed(messageId);
             }
 
             // Ignorar mensagens antigas (sync de histórico do Baileys)
@@ -200,6 +213,8 @@ app.post(['/webhook', '/webhook/:event'], async (req, res) => {
                 text = messageObj.extendedTextMessage.text.trim();
             } else if (messageObj.imageMessage) {
                 text = '[IMAGEM_ENVIADA]';
+            } else if (messageObj.audioMessage) {
+                text = '[AUDIO_ENVIADO]';
             }
 
             // Se a mensagem for do próprio admin
@@ -227,7 +242,7 @@ app.post(['/webhook', '/webhook/:event'], async (req, res) => {
             }
 
             // Se for mensagem de mídia sem texto ou não processável
-            if (!text && !messageObj.imageMessage) {
+            if (!text && !messageObj.imageMessage && !messageObj.audioMessage) {
                 return res.status(200).send();
             }
 
@@ -262,6 +277,7 @@ app.post(['/webhook', '/webhook/:event'], async (req, res) => {
                     await saveUserState(remoteJid, userData);
                 } catch (bgErr) {
                     console.error('[ERRO_BACKGROUND]', bgErr);
+                    await saveLog('ERROR', 'Erro no processamento em background', { jid: remoteJid, error: bgErr.message });
                 }
             })();
             
@@ -277,15 +293,20 @@ app.post(['/webhook', '/webhook/:event'], async (req, res) => {
     }
 });
 
-// --- Cron Job para Limpeza de Inativos ---
+// --- Cron Job para Limpeza de Inativos e Manutenção do Banco ---
 setInterval(async () => {
     try {
         const deleted = await deleteInactiveUsers(24);
         if (deleted > 0) {
-            console.log(`[CRON] ${deleted} leads inativos (24h+) foram liberados automaticamente.`);
+            console.log(`[LIMPEZA] ${deleted} leads inativos foram resetados.`);
+            await saveLog('INFO', `Limpeza executada. ${deleted} inativos resetados.`);
         }
+        
+        // Limpa o banco (logs e mensagens antigas) para evitar sobrecarga
+        await cleanupDatabase();
     } catch (err) {
-        console.error('[CRON] Erro ao limpar inativos:', err);
+        console.error('Erro na rotina de limpeza:', err);
+        await saveLog('ERROR', 'Erro na rotina de limpeza', { error: err.message });
     }
 }, 60 * 60 * 1000); // Roda a cada 1 hora
 

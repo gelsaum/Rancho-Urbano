@@ -15,6 +15,21 @@ db.serialize(() => {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
+    db.run(`
+        CREATE TABLE IF NOT EXISTS processed_messages (
+            id TEXT PRIMARY KEY,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    db.run(`
+        CREATE TABLE IF NOT EXISTS system_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            level TEXT,
+            message TEXT,
+            metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 });
 
 async function getUserState(jid) {
@@ -30,8 +45,8 @@ async function saveUserState(jid, data) {
     return new Promise((resolve, reject) => {
         const jsonData = JSON.stringify(data);
         db.run(
-            "INSERT INTO user_states (jid, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(jid) DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP", 
-            [jid, jsonData], 
+            "INSERT INTO user_states (jid, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(jid) DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP",
+            [jid, jsonData],
             (err) => {
                 if (err) return reject(err);
                 resolve();
@@ -62,7 +77,7 @@ async function deleteInactiveUsers(hours = 24) {
         `;
         db.all(query, [], (err, rows) => {
             if (err) return reject(err);
-            
+
             let count = 0;
             // Iterate and only reset those in ATENDIMENTO_HUMANO
             rows.forEach(row => {
@@ -72,7 +87,7 @@ async function deleteInactiveUsers(hours = 24) {
                     data.interests = [];
                     data.deliveryMethod = null;
                     data.currentCategory = null;
-                    
+
                     db.run(
                         "UPDATE user_states SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE jid = ?",
                         [JSON.stringify(data), row.jid]
@@ -94,10 +109,65 @@ function closeDatabase() {
     });
 }
 
+// ==========================
+// Idempotência
+// ==========================
+async function isMessageProcessed(messageId) {
+    return new Promise((resolve, reject) => {
+        db.get("SELECT id FROM processed_messages WHERE id = ?", [messageId], (err, row) => {
+            if (err) return reject(err);
+            resolve(!!row);
+        });
+    });
+}
+
+async function markMessageProcessed(messageId) {
+    return new Promise((resolve, reject) => {
+        db.run("INSERT OR IGNORE INTO processed_messages (id) VALUES (?)", [messageId], (err) => {
+            if (err) return reject(err);
+            resolve();
+        });
+    });
+}
+
+// ==========================
+// Logs
+// ==========================
+async function saveLog(level, message, metadata = {}) {
+    return new Promise((resolve, reject) => {
+        const metaStr = JSON.stringify(metadata);
+        db.run("INSERT INTO system_logs (level, message, metadata) VALUES (?, ?, ?)", [level, message, metaStr], (err) => {
+            if (err) return reject(err);
+            resolve();
+        });
+    });
+}
+
+// ==========================
+// Limpeza Geral
+// ==========================
+async function cleanupDatabase() {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            // Apaga logs mais velhos que 7 dias
+            db.run("DELETE FROM system_logs WHERE created_at <= datetime('now', '-7 days')");
+            // Apaga histórico de mensagens processadas mais velhas que 2 dias (48h)
+            db.run("DELETE FROM processed_messages WHERE created_at <= datetime('now', '-2 days')", (err) => {
+                if (err) return reject(err);
+                resolve();
+            });
+        });
+    });
+}
+
 module.exports = {
     getUserState,
     saveUserState,
     getAllUsers,
     deleteInactiveUsers,
-    closeDatabase
+    closeDatabase,
+    isMessageProcessed,
+    markMessageProcessed,
+    saveLog,
+    cleanupDatabase
 };

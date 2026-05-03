@@ -21,8 +21,11 @@ module.exports = {
         
         DESCRICAO: `✍️ *Por favor, digite o nome do produto que procura:*\n\n◀️ Ou digite 0 para Voltar`,
         
-        MAIS_ITENS: `✅ *Item registrado!*\n\nDeseja adicionar outra categoria ao pedido?\n\n1️⃣ ➕ Sim, adicionar outro item\n2️⃣ 🛍️ Não, finalizar pedido`,
+        MAIS_ITENS: `✅ *Item registrado!*\n\nDeseja adicionar outra categoria ao pedido?\n\n1️⃣ ➕ Sim, adicionar outro item\n2️⃣ 🛍️ Não, ir para o carrinho`,
         
+        CONFIRMAR_CARRINHO: (items) => `🛒 *SEU CARRINHO ATUAL:*\n\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\nO que deseja fazer?\n1️⃣ ✅ Confirmar e ir para entrega\n2️⃣ 🗑️ Remover um item`,
+        
+        REMOVER_ITEM: `🗑️ *Qual o número do item que deseja remover?*\n_(Digite o número correspondente na lista)_\n\n◀️ Ou digite 0 para Voltar`,
         TIPO_ENTREGA: `🚚 *Como você prefere receber seu pedido?*\n\n1️⃣ 🛵 Entregar no meu endereço\n2️⃣ 🏪 Retirar na loja\n\n◀️ 0️⃣ Voltar`,
         
         PEDIR_IDENTIDADE: `📄 *Certo! Para realizarmos a entrega, precisamos de alguns dados.*\n\nPor favor, digite o número da sua Identidade (CI):\n\n◀️ Ou digite 0 para Voltar`,
@@ -38,6 +41,8 @@ module.exports = {
         ATENDIMENTO_REINICIADO: `🔄 *Atendimento reiniciado!*\n\n`,
         
         ATENDIMENTO_ENCERRADO: `🤖 *Atendimento finalizado pelo humano.*\nO assistente virtual do Rancho Urbano voltou a assumir o seu atendimento! Digite qualquer coisa se precisar de nós novamente.`,
+
+        MENSAGEM_FORA_HORARIO: `\n\n🌙 *Nosso horário de atendimento encerrou.*\nMas não se preocupe! Seu pedido/solicitação já está na nossa fila e responderemos assim que retornarmos no próximo dia útil.`,
 
         ERRO_IMAGEM: `Por favor, nos envie a foto (imagem) do produto para podermos ajudar.`,
 

@@ -10,6 +10,23 @@ function formatPhone(jid) {
     return jid.includes('@') ? jid.split('@')[0] : jid;
 }
 
+// Formatar tempo relativo (ex: 5 min atrás)
+function formatRelativeTime(isoString) {
+    if (!isoString) return 'Desconhecido';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMin < 1) return 'Agora mesmo';
+    if (diffMin < 60) return `${diffMin} min atrás`;
+    
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h atrás`;
+    
+    return date.toLocaleDateString();
+}
+
 // Criar elemento do spinner
 function getSpinner() {
     return `<svg class="spinner" viewBox="0 0 50 50"><circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle></svg>`;
@@ -21,6 +38,16 @@ function createLeadCard(lead) {
     card.className = 'lead-card';
     card.id = `lead-${lead.jid}`;
     
+    // Calcula urgência (10 minutos de espera após o término da triagem)
+    const baseTime = lead.data.triageCompletedAt ? new Date(lead.data.triageCompletedAt).getTime() : new Date(lead.updated_at).getTime();
+    const now = Date.now();
+    const diffMin = (now - baseTime) / (1000 * 60);
+    const isUrgent = diffMin >= 10 && lead.data && !lead.data.urgencyDismissed;
+
+    if (isUrgent) {
+        card.classList.add('urgency-alert');
+    }
+
     const phone = formatPhone(lead.jid);
     const pushName = (lead.data && lead.data.pushName) ? lead.data.pushName : 'Desconhecido';
     
@@ -82,7 +109,14 @@ function createLeadCard(lead) {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
                         </button>
                     </div>
-                    <span style="font-size: 12px; color: #94a3b8;">${phone}</span>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 12px; color: #94a3b8;">${phone}</span>
+                        ${isUrgent ? `
+                        <button onclick="dismissUrgency('${lead.jid}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;" title="Remover alerta de urgência">
+                            Desativar Alerta
+                        </button>
+                        ` : ''}
+                    </div>
                 </div>
             </div>
             <a href="https://wa.me/${phone}" target="_blank" class="wa-link" title="Abrir WhatsApp Web">
@@ -99,6 +133,10 @@ function createLeadCard(lead) {
             <div class="data-group">
                 <span class="data-label">Forma de Entrega</span>
                 ${deliveryHtml}
+            </div>
+            <div class="data-group time-info" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--card-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;">
+                <span style="color: #94a3b8;">🏁 Finalizado às: <b style="color: #e2e8f0;">${lead.data.triageCompletedAt ? new Date(lead.data.triageCompletedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Desconhecido'}</b></span>
+                <span style="color: #94a3b8;">⏳ Aguardando há: <b style="color: ${isUrgent ? '#f87171' : '#e2e8f0'};">${formatRelativeTime(lead.data.triageCompletedAt)}</b></span>
             </div>
         </div>
         <div class="card-footer">
@@ -297,6 +335,26 @@ document.getElementById('contact-search')?.addEventListener('input', (e) => {
     });
     renderContactsTable(filtered);
 });
+
+// Desativar alerta de urgência
+async function dismissUrgency(jid) {
+    try {
+        const res = await fetch(`/api/leads/${jid}/dismiss-urgency`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            // Re-renderizar painel
+            fetchLeads();
+        } else {
+            alert('Falha ao desativar alerta: ' + (data.error || 'Erro desconhecido'));
+        }
+    } catch (err) {
+        console.error("Erro ao desativar alerta:", err);
+        alert('Falha de conexão ao desativar alerta.');
+    }
+}
 
 // Alternar status
 async function toggleBotStatus(jid, isBotActive) {
