@@ -1,8 +1,8 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Caminho do DB deve ser absoluto ou relativo à raiz do projeto
-const dbPath = path.resolve(__dirname, '../database.sqlite');
+// Caminho do DB deve ser absoluto ou relativo à raiz do projeto. Pode ser customizado via ENV
+const dbPath = process.env.DB_PATH || path.resolve(__dirname, '../database.sqlite');
 const db = new sqlite3.Database(dbPath);
 
 // Inicializa o banco de dados com WAL (Write-Ahead Logging) para alta concorrência
